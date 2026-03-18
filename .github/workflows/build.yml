@@ -1,5 +1,5 @@
 name: Build Android APK
-on: [push]
+on: [push, workflow_dispatch] # workflow_dispatch 允许你手动在网页上点运行
 
 jobs:
   build:
@@ -7,6 +7,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # 1. 补充安卓打包必备的 Java 环境 (推荐 Java 17)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -16,8 +23,9 @@ jobs:
       - name: Install Flet
         run: pip install flet
 
+      # 2. 关键修复：用 yes | 自动回答所有 [y/n] 提示
       - name: Build APK
-        run: flet build apk
+        run: yes | flet build apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
