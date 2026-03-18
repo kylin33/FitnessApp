@@ -27,7 +27,7 @@ jobs:
 
       # 2. 关键修复：用 yes | 自动回答所有 [y/n] 提示
       - name: Build APK
-        run: yes | flet build apk -v --yes .
+        run: yes | flet build apk -v --yes
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
