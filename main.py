@@ -7,15 +7,23 @@ from flet_audio import Audio
 async def main(page: ft.Page):
     page.title = "极简健身计时器"
     page.theme_mode = ft.ThemeMode.DARK # 酷炫暗黑模式
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.START
 
     # --- 1. 核心状态变量 ---
+    def _debug(msg: str):
+        print(f"[DEBUG] {msg}", flush=True)
+
     workout_plan = []  # 存放解析后的任务列表
     current_task_idx = 0
     rest_cancel_event = threading.Event()
     rest_pause_event = threading.Event()
     rest_pause_event.set()  # not paused
     is_resting = False
+
+    work_cancel_event = threading.Event()
+    work_pause_event = threading.Event()
+    work_pause_event.set()
+    is_working = False
     
     # 提示音：使用 flet-audio 插件（支持移动端）
     audio_player = Audio(src="assets/ding.wav", autoplay=False)
@@ -95,40 +103,31 @@ async def main(page: ft.Page):
         value=initial_text
     )
 
-    async def _persist_current_text_as_last():
-        nonlocal plans, last_plan_id
-        text = txt_input.value or ""
-        plan_id = last_plan_id or "default"
-        name = plans.get(plan_id, {}).get("name") or _infer_plan_name(text)
-        plans[plan_id] = {"name": name, "text": text}
-        await _save_plans(plans)
-        await _set_last_plan_id(plan_id)
-        last_plan_id = plan_id
-
-    async def on_input_change(e):
-        # lightweight auto-save to "last used plan"
-        await _persist_current_text_as_last()
-
-    txt_input.on_change = on_input_change
-    
     # 显示当前状态的大字
     lbl_status = ft.Text("准备开始", size=30, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_400)
     lbl_detail = ft.Text("点击下方解析计划", size=20)
     
-    # 倒计时显示
+    # 倒计时显示（休息）
     lbl_timer = ft.Text("00:00", size=60, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400)
     lbl_timer.visible = False
+    # 动作计时（例如：平板支撑 60秒）
+    lbl_work_timer = ft.Text("00:00", size=48, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_400)
+    lbl_work_timer.visible = False
 
     # 按钮
     btn_action = ft.Button(content="解析并开始训练", width=200, height=50)
     btn_pause = ft.Button(content="暂停", width=100, height=40, visible=False, disabled=True)
     btn_stop = ft.Button(content="终止", width=100, height=40, visible=False, disabled=True)
+    btn_work_pause = ft.Button(content="暂停", width=100, height=40, visible=False, disabled=True)
+    btn_work_stop = ft.Button(content="结束本组", width=110, height=40, visible=False, disabled=True)
 
     dd_plans = ft.Dropdown(label="选择计划", width=260, options=[])
     btn_save_plan = ft.Button(content="保存为新计划", width=120, height=40)
+    btn_update_plan = ft.Button(content="保存修改", width=100, height=40)
     btn_delete_plan = ft.Button(content="删除计划", width=100, height=40)
 
     def _refresh_plan_dropdown(selected_id: str | None = None):
+        _debug(f"_refresh_plan_dropdown(selected_id={selected_id}, total={len(plans)})")
         dd_plans.options = [
             ft.dropdown.Option(key=pid, text=plans[pid].get("name") or pid)
             for pid in sorted(plans.keys())
@@ -143,7 +142,9 @@ async def main(page: ft.Page):
 
     async def _apply_plan(plan_id: str):
         nonlocal last_plan_id
+        _debug(f"_apply_plan(plan_id={plan_id})")
         if plan_id not in plans:
+            _debug(f"_apply_plan skipped: missing plan_id={plan_id}")
             return
         txt_input.value = plans[plan_id].get("text", "") or ""
         await _set_last_plan_id(plan_id)
@@ -151,13 +152,17 @@ async def main(page: ft.Page):
         page.update()
 
     async def on_plan_change(e):
+        _debug(f"on_plan_change triggered, dd_plans.value={dd_plans.value}")
         if dd_plans.value:
             await _apply_plan(dd_plans.value)
+            if auto_back_home_after_plan_select:
+                _set_tab("home")
 
     dd_plans.on_change = on_plan_change
 
     async def on_save_plan(e):
         nonlocal plans, last_plan_id
+        _debug("on_save_plan triggered")
         text = txt_input.value or ""
         name = _infer_plan_name(text)
         # generate a simple unique id
@@ -172,13 +177,37 @@ async def main(page: ft.Page):
         await _set_last_plan_id(plan_id)
         last_plan_id = plan_id
         _refresh_plan_dropdown(plan_id)
+        _debug(f"on_save_plan done, new plan_id={plan_id}")
 
     btn_save_plan.on_click = on_save_plan
 
-    async def on_delete_plan(e):
+    async def on_update_plan(e):
         nonlocal plans, last_plan_id
+        _debug("on_update_plan triggered")
+        pid = dd_plans.value or last_plan_id
+        if not pid:
+            _debug("on_update_plan skipped: no pid")
+            return
+        if pid not in plans:
+            _debug(f"on_update_plan skipped: missing pid={pid}")
+            return
+        text = txt_input.value or ""
+        plans[pid]["name"] = _infer_plan_name(text)
+        plans[pid]["text"] = text
+        await _save_plans(plans)
+        await _set_last_plan_id(pid)
+        last_plan_id = pid
+        _refresh_plan_dropdown(pid)
+        _debug(f"on_update_plan done, pid={pid}")
+
+    btn_update_plan.on_click = on_update_plan
+
+    async def _delete_plan_confirmed():
+        nonlocal plans, last_plan_id
+        _debug("_delete_plan_confirmed triggered")
         pid = dd_plans.value or last_plan_id
         if not pid or pid not in plans:
+            _debug(f"_delete_plan_confirmed skipped, pid={pid}")
             return
         del plans[pid]
         if not plans:
@@ -191,50 +220,157 @@ async def main(page: ft.Page):
         last_plan_id = next_id
         _refresh_plan_dropdown(next_id)
         await _apply_plan(next_id)
+        _debug(f"_delete_plan_confirmed done, next_id={next_id}")
+
+    async def on_delete_plan(e):
+        _debug("on_delete_plan triggered -> show confirm dialog")
+        confirm_dialog.title = ft.Text("确认删除")
+        confirm_dialog.content = ft.Text("确定要删除当前计划吗？此操作不可撤销。")
+        confirm_dialog.open = True
+        page.update()
 
     btn_delete_plan.on_click = on_delete_plan
 
     _refresh_plan_dropdown(last_plan_id)
 
-    drawer = ft.NavigationDrawer(
-        controls=[
-            ft.Container(height=10),
-            ft.Text("训练计划", size=18, weight=ft.FontWeight.BOLD),
-            dd_plans,
-            ft.Row([btn_save_plan, btn_delete_plan], spacing=10),
-        ]
-    )
-    page.drawer = drawer
-    btn_open_drawer = ft.IconButton(icon=ft.Icons.MENU, tooltip="计划")
+    async def on_confirm_delete(e):
+        _debug("on_confirm_delete triggered")
+        confirm_dialog.open = False
+        page.update()
+        await _delete_plan_confirmed()
 
-    def on_open_drawer(e):
-        page.drawer.open = True
+    def on_cancel_delete(e):
+        _debug("on_cancel_delete triggered")
+        confirm_dialog.open = False
         page.update()
 
-    btn_open_drawer.on_click = on_open_drawer
+    confirm_dialog = ft.AlertDialog(
+        modal=True,
+        actions_alignment=ft.MainAxisAlignment.END,
+        actions=[
+            ft.TextButton("取消", on_click=on_cancel_delete),
+            ft.TextButton("删除", on_click=on_confirm_delete),
+        ],
+    )
+    page.dialog = confirm_dialog
+
+    auto_back_home_after_plan_select = True
+    current_tab = "home"
+    btn_nav_home = ft.Button(content="首页", width=96, height=44, disabled=True)
+    btn_nav_plan = ft.Button(content="计划", width=96, height=44)
 
     # --- 3. 逻辑函数 ---
     def parse_plan(text):
         """解析极简文本，生成任务列表"""
         plan = []
         lines = text.strip().split('\n')
+
+        def _extract_int(raw: str, default: int = 0) -> int:
+            digits = ''.join(ch for ch in (raw or "") if ch.isdigit())
+            return int(digits) if digits else default
+
+        def _parse_duration_seconds(raw: str) -> int:
+            t = (raw or "").strip().lower().replace(" ", "")
+            if not t:
+                return 0
+            if t in {"无", "none", "n/a", "na", "-"}:
+                return 0
+            if "无" in t and not any(ch.isdigit() for ch in t):
+                return 0
+
+            # 形如 1分钟30秒 / 2分 / 45秒 / 15s
+            if "分" in t:
+                min_part, sec_part = t.split("分", 1)
+                mins = _extract_int(min_part, 0)
+                secs = _extract_int(sec_part, 0) if ("秒" in sec_part or sec_part.endswith("s")) else 0
+                return mins * 60 + secs
+
+            if "秒" in t or t.endswith("s"):
+                return _extract_int(t, 0)
+
+            # 纯数字时按秒处理（主要用于休息字段）
+            return _extract_int(t, 0)
+
         for line in lines:
             if not line or '|' not in line: continue
             parts = [p.strip() for p in line.split('|')]
             if len(parts) >= 4:
-                # 提取组数和休息秒数 (利用简单的字符串截取，把"4组"变成 4)
-                sets = int(''.join(filter(str.isdigit, parts[1])))
-                rest_sec = int(''.join(filter(str.isdigit, parts[3])))
+                # 提取组数和休息秒数
+                sets = _extract_int(parts[1], 0)
+                if sets <= 0:
+                    continue
+                rest_sec = _parse_duration_seconds(parts[3])
+                target_raw = parts[2]
+
+                def _parse_target(t: str):
+                    tl = (t or "").strip().lower().replace(" ", "")
+                    if "秒" in tl or "分" in tl or tl.endswith("s"):
+                        return {"kind": "time", "seconds": _parse_duration_seconds(t)}
+                    return {"kind": "reps", "text": target_raw}
                 
                 # 拆分成具体的每一组任务
                 for s in range(sets):
+                    target = _parse_target(target_raw)
                     plan.append({
                         "name": parts[0],
                         "set_info": f"第 {s+1} 组 / 共 {sets} 组",
-                        "target": parts[2],
-                        "rest": rest_sec
+                        "target": target,
+                        "rest": rest_sec,
                     })
         return plan
+
+    def run_work_timer(seconds, rest_seconds_after):
+        """动作计时（例如平板支撑 60秒），结束后自动进入休息"""
+        nonlocal is_working
+        is_working = True
+        work_cancel_event.clear()
+        work_pause_event.set()
+
+        lbl_work_timer.visible = True
+        btn_action.disabled = True
+        btn_work_pause.visible = True
+        btn_work_stop.visible = True
+        btn_work_pause.disabled = False
+        btn_work_stop.disabled = False
+        btn_work_pause.content = "暂停"
+        page.update()
+
+        remaining = int(seconds)
+        while remaining >= 0:
+            if work_cancel_event.is_set():
+                break
+            work_pause_event.wait()
+            mins, secs = divmod(remaining, 60)
+            lbl_work_timer.value = f"{mins:02d}:{secs:02d}"
+            page.update()
+            time.sleep(1)
+            remaining -= 1
+
+        canceled = work_cancel_event.is_set()
+        if not canceled:
+            if getattr(page, "haptic_feedback", None):
+                page.haptic_feedback.heavy_impact()
+            if audio_player:
+                audio_player.play()
+
+        lbl_work_timer.visible = False
+        btn_work_pause.visible = False
+        btn_work_stop.visible = False
+        btn_work_pause.disabled = True
+        btn_work_stop.disabled = True
+        btn_action.disabled = False
+        is_working = False
+        page.update()
+
+        if canceled:
+            return
+
+        # 自动进入休息
+        lbl_status.value = "休息中..."
+        lbl_detail.value = "深呼吸，准备下一组"
+        btn_action.content = "倒计时中..."
+        page.update()
+        threading.Thread(target=run_rest_timer, args=(int(rest_seconds_after),), daemon=True).start()
 
     def run_rest_timer(seconds):
         """后台倒计时线程"""
@@ -288,7 +424,11 @@ async def main(page: ft.Page):
         if current_task_idx < len(workout_plan):
             task = workout_plan[current_task_idx]
             lbl_status.value = task["name"]
-            lbl_detail.value = f"{task['set_info']}  目标: {task['target']}"
+            tgt = task["target"]
+            if isinstance(tgt, dict) and tgt.get("kind") == "time":
+                lbl_detail.value = f"{task['set_info']}  目标: {int(tgt.get('seconds', 0))} 秒"
+            else:
+                lbl_detail.value = f"{task['set_info']}  目标: {tgt.get('text') if isinstance(tgt, dict) else tgt}"
         else:
             lbl_status.value = "🎉 训练全部完成！"
             lbl_detail.value = "去喝点蛋白粉吧！"
@@ -315,13 +455,25 @@ async def main(page: ft.Page):
         elif btn_action.content == "完成本组，开始休息":
             task = workout_plan[current_task_idx]
             current_task_idx += 1
-            
-            lbl_status.value = "休息中..."
-            lbl_detail.value = "深呼吸，准备下一组"
-            btn_action.content = "倒计时中..."
-            
-            # 开启新线程跑倒计时，防止UI卡死
-            threading.Thread(target=run_rest_timer, args=(task["rest"],), daemon=True).start()
+
+            tgt = task.get("target")
+            if isinstance(tgt, dict) and tgt.get("kind") == "time" and int(tgt.get("seconds", 0)) > 0:
+                lbl_status.value = "动作计时中..."
+                lbl_detail.value = "保持节奏"
+                btn_action.content = "计时中..."
+                page.update()
+                threading.Thread(
+                    target=run_work_timer,
+                    args=(int(tgt["seconds"]), int(task["rest"])),
+                    daemon=True,
+                ).start()
+            else:
+                lbl_status.value = "休息中..."
+                lbl_detail.value = "深呼吸，准备下一组"
+                btn_action.content = "倒计时中..."
+                page.update()
+                # 开启新线程跑倒计时，防止UI卡死
+                threading.Thread(target=run_rest_timer, args=(task["rest"],), daemon=True).start()
 
     # 绑定按钮事件
     btn_action.on_click = on_btn_click
@@ -355,23 +507,126 @@ async def main(page: ft.Page):
     btn_pause.on_click = on_pause_click
     btn_stop.on_click = on_stop_click
 
+    def on_work_pause_click(e):
+        if not is_working:
+            return
+        if work_pause_event.is_set():
+            work_pause_event.clear()
+            btn_work_pause.content = "继续"
+        else:
+            work_pause_event.set()
+            btn_work_pause.content = "暂停"
+        page.update()
+
+    def on_work_stop_click(e):
+        nonlocal is_working
+        if not is_working:
+            return
+        work_cancel_event.set()
+        work_pause_event.set()
+        lbl_work_timer.visible = False
+        btn_work_pause.visible = False
+        btn_work_stop.visible = False
+        btn_action.disabled = False
+        is_working = False
+        btn_action.content = "完成本组，开始休息"
+        page.update()
+
+    btn_work_pause.on_click = on_work_pause_click
+    btn_work_stop.on_click = on_work_stop_click
+
+    def _set_tab(tab: str):
+        nonlocal current_tab
+        current_tab = tab
+        is_home = tab == "home"
+        _debug(f"_set_tab -> {tab}")
+        home_view.visible = is_home
+        plan_view.visible = not is_home
+        btn_nav_home.disabled = is_home
+        btn_nav_plan.disabled = not is_home
+        page.update()
+
+    def on_nav_home(e):
+        _set_tab("home")
+
+    def on_nav_plan(e):
+        _set_tab("plan")
+
+    btn_nav_home.on_click = on_nav_home
+    btn_nav_plan.on_click = on_nav_plan
+
+    home_view = ft.Container(
+        expand=True,
+        visible=True,
+        content=ft.Column(
+            controls=[
+                ft.Text("自律即自由", size=20, color=ft.Colors.GREY_500),
+                txt_input,
+                ft.Divider(),
+                lbl_status,
+                lbl_detail,
+                lbl_timer,
+                lbl_work_timer,
+                ft.Container(height=30), # 占位空隙
+                ft.Row([btn_pause, btn_stop], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                ft.Row([btn_work_pause, btn_work_stop], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
+                btn_action,
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+
+    cb_auto_back = ft.Checkbox(label="选择历史计划后自动返回首页", value=auto_back_home_after_plan_select)
+
+    def on_auto_back_toggle(e):
+        nonlocal auto_back_home_after_plan_select
+        auto_back_home_after_plan_select = bool(cb_auto_back.value)
+        _debug(f"auto_back_home_after_plan_select={auto_back_home_after_plan_select}")
+
+    cb_auto_back.on_change = on_auto_back_toggle
+
+    plan_view = ft.Container(
+        expand=True,
+        visible=False,
+        content=ft.Column(
+            controls=[
+                ft.Text("计划管理", size=24, weight=ft.FontWeight.BOLD),
+                ft.Text("在这里选择历史计划，或保存/修改/删除计划。", color=ft.Colors.GREY_400),
+                cb_auto_back,
+                dd_plans,
+                ft.Row([btn_save_plan, btn_update_plan, btn_delete_plan], spacing=10),
+            ],
+            spacing=12,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+        ),
+    )
+
     # --- 4. 组装页面 ---
     page.add(
         ft.Row(
-            [
-                btn_open_drawer,
-                ft.Text("自律即自由", size=20, color=ft.Colors.GREY_500),
+            controls=[
+                ft.Container(
+                    width=110,
+                    padding=ft.padding.only(top=8),
+                    content=ft.Column(
+                        controls=[
+                            ft.Text("导航", size=16, weight=ft.FontWeight.BOLD),
+                            btn_nav_home,
+                            btn_nav_plan,
+                        ],
+                        spacing=8,
+                    ),
+                ),
+                ft.VerticalDivider(width=1),
+                ft.Container(
+                    expand=True,
+                    padding=16,
+                    content=ft.Stack([home_view, plan_view], expand=True),
+                ),
             ],
-            alignment=ft.MainAxisAlignment.CENTER,
-        ),
-        txt_input,
-        ft.Divider(),
-        lbl_status,
-        lbl_detail,
-        lbl_timer,
-        ft.Container(height=30), # 占位空隙
-        ft.Row([btn_pause, btn_stop], alignment=ft.MainAxisAlignment.CENTER, spacing=12),
-        btn_action
+            expand=True,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+        )
     )
 
 # 运行APP
