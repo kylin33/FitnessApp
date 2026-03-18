@@ -21,11 +21,13 @@ jobs:
           python-version: '3.11'
 
       - name: Install Flet
-        run: pip install flet
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
 
       # 2. 关键修复：用 yes | 自动回答所有 [y/n] 提示
       - name: Build APK
-        run: yes | flet build apk
+        run: yes | flet build apk -v --yes .
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
