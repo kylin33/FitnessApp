@@ -57,6 +57,7 @@ async def main(page: ft.Page):
     txt_input = ft.TextField(
         multiline=True,
         min_lines=5,
+        max_lines=12,
         hint_text="输入格式例如:\n俯卧撑 | 4组 | 力竭 | 休90\n深蹲 | 3组 | 15次 | 休60",
         value=initial_text
     )
@@ -210,6 +211,8 @@ async def main(page: ft.Page):
     current_tab = "home"
     btn_nav_home = ft.Button(content="首页", width=96, height=44, disabled=True)
     btn_nav_plan = ft.Button(content="计划", width=96, height=44)
+    btn_nav_home_mobile = ft.Button(content="首页", disabled=True, expand=True)
+    btn_nav_plan_mobile = ft.Button(content="计划", expand=True)
 
     # --- 3. 逻辑函数 ---
     def parse_plan(text):
@@ -535,6 +538,8 @@ async def main(page: ft.Page):
         plan_view.visible = not is_home
         btn_nav_home.disabled = is_home
         btn_nav_plan.disabled = not is_home
+        btn_nav_home_mobile.disabled = is_home
+        btn_nav_plan_mobile.disabled = not is_home
         page.update()
 
     def on_nav_home(e):
@@ -545,6 +550,15 @@ async def main(page: ft.Page):
 
     btn_nav_home.on_click = on_nav_home
     btn_nav_plan.on_click = on_nav_plan
+    btn_nav_home_mobile.on_click = on_nav_home
+    btn_nav_plan_mobile.on_click = on_nav_plan
+
+    mobile_nav_bar = ft.Row(
+        controls=[btn_nav_home_mobile, btn_nav_plan_mobile],
+        alignment=ft.MainAxisAlignment.START,
+        spacing=8,
+        visible=False,
+    )
 
     home_view = build_home_view(
         lbl_header=ft.Text("自律即自由", size=20, color=ft.Colors.GREY_500),
@@ -579,22 +593,57 @@ async def main(page: ft.Page):
         btn_delete_plan=btn_delete_plan,
     )
 
+    sidebar_container = build_sidebar(btn_nav_home, btn_nav_plan)
+    sidebar_divider = ft.VerticalDivider(width=1)
+    content_container = ft.Container(
+        expand=True,
+        padding=ft.padding.only(top=24, left=16, right=16, bottom=16),
+        content=ft.Column(
+            controls=[
+                mobile_nav_bar,
+                ft.Stack([home_view, plan_view], expand=True),
+            ],
+            expand=True,
+            spacing=10,
+        ),
+    )
+
+    def _apply_responsive_layout():
+        width = (
+            page.width
+            or getattr(page, "window_width", None)
+            or getattr(getattr(page, "window", None), "width", None)
+            or 360
+        )
+        is_mobile = width < 800
+        sidebar_container.visible = not is_mobile
+        sidebar_divider.visible = not is_mobile
+        mobile_nav_bar.visible = is_mobile
+        content_container.padding = (
+            ft.padding.only(top=18, left=10, right=10, bottom=10)
+            if is_mobile
+            else ft.padding.only(top=28, left=16, right=16, bottom=16)
+        )
+        page.update()
+
     # --- 4. 组装页面 ---
     page.add(
         ft.Row(
             controls=[
-                build_sidebar(btn_nav_home, btn_nav_plan),
-                ft.VerticalDivider(width=1),
-                ft.Container(
-                    expand=True,
-                    padding=16,
-                    content=ft.Stack([home_view, plan_view], expand=True),
-                ),
+                sidebar_container,
+                sidebar_divider,
+                content_container,
             ],
             expand=True,
             vertical_alignment=ft.CrossAxisAlignment.START,
         )
     )
+
+    def on_page_resize(e):
+        _apply_responsive_layout()
+
+    page.on_resize = on_page_resize
+    _apply_responsive_layout()
 
 # 运行APP
 ft.run(main)
