@@ -1,8 +1,6 @@
 import flet as ft
-import time
-import threading
+import asyncio
 import json
-from flet_audio import Audio
 
 async def main(page: ft.Page):
     page.title = "极简健身计时器"
@@ -15,19 +13,19 @@ async def main(page: ft.Page):
 
     workout_plan = []  # 存放解析后的任务列表
     current_task_idx = 0
-    rest_cancel_event = threading.Event()
-    rest_pause_event = threading.Event()
-    rest_pause_event.set()  # not paused
+    rest_cancelled = False
+    rest_paused = False
+    rest_task = None
     is_resting = False
 
-    work_cancel_event = threading.Event()
-    work_pause_event = threading.Event()
-    work_pause_event.set()
+    work_cancelled = False
+    work_paused = False
+    work_task = None
     is_working = False
     
     # 提示音：使用 flet-audio 插件（支持移动端）
-    audio_player = Audio(src="assets/ding.wav", autoplay=False)
-    page.overlay.append(audio_player)
+    # 部分客户端不支持第三方 Audio 控件，直接禁用以保证界面稳定。
+    audio_player = None
 
     # --- 2. UI 控件 ---
     # 计划存储（本地持久化到客户端）
@@ -319,12 +317,12 @@ async def main(page: ft.Page):
                     })
         return plan
 
-    def run_work_timer(seconds, rest_seconds_after):
+    async def run_work_timer(seconds, rest_seconds_after):
         """动作计时（例如平板支撑 60秒），结束后自动进入休息"""
-        nonlocal is_working
+        nonlocal is_working, work_cancelled, work_paused
         is_working = True
-        work_cancel_event.clear()
-        work_pause_event.set()
+        work_cancelled = False
+        work_paused = False
 
         lbl_work_timer.visible = True
         btn_action.disabled = True
@@ -337,16 +335,18 @@ async def main(page: ft.Page):
 
         remaining = int(seconds)
         while remaining >= 0:
-            if work_cancel_event.is_set():
+            if work_cancelled:
                 break
-            work_pause_event.wait()
+            if work_paused:
+                await asyncio.sleep(0.1)
+                continue
             mins, secs = divmod(remaining, 60)
             lbl_work_timer.value = f"{mins:02d}:{secs:02d}"
             page.update()
-            time.sleep(1)
+            await asyncio.sleep(1)
             remaining -= 1
 
-        canceled = work_cancel_event.is_set()
+        canceled = work_cancelled
         if not canceled:
             if getattr(page, "haptic_feedback", None):
                 page.haptic_feedback.heavy_impact()
@@ -370,14 +370,14 @@ async def main(page: ft.Page):
         lbl_detail.value = "深呼吸，准备下一组"
         btn_action.content = "倒计时中..."
         page.update()
-        threading.Thread(target=run_rest_timer, args=(int(rest_seconds_after),), daemon=True).start()
+        page.run_task(run_rest_timer, int(rest_seconds_after))
 
-    def run_rest_timer(seconds):
+    async def run_rest_timer(seconds):
         """后台倒计时线程"""
-        nonlocal is_resting
+        nonlocal is_resting, rest_cancelled, rest_paused
         is_resting = True
-        rest_cancel_event.clear()
-        rest_pause_event.set()
+        rest_cancelled = False
+        rest_paused = False
         lbl_timer.visible = True
         btn_action.disabled = True # 休息期间禁用按钮防误触
         btn_pause.visible = True
@@ -389,17 +389,19 @@ async def main(page: ft.Page):
         
         remaining = seconds
         while remaining >= 0:
-            if rest_cancel_event.is_set():
+            if rest_cancelled:
                 break
-            rest_pause_event.wait()
+            if rest_paused:
+                await asyncio.sleep(0.1)
+                continue
             i = remaining
             mins, secs = divmod(i, 60)
             lbl_timer.value = f"{mins:02d}:{secs:02d}"
             page.update()
-            time.sleep(1)
+            await asyncio.sleep(1)
             remaining -= 1
             
-        canceled = rest_cancel_event.is_set()
+        canceled = rest_cancelled
         if not canceled:
             # 倒计时结束！震动 (+ 提示音如果可用)
             if getattr(page, "haptic_feedback", None):
@@ -434,8 +436,8 @@ async def main(page: ft.Page):
             lbl_detail.value = "去喝点蛋白粉吧！"
             btn_action.content = "重新开始"
 
-    def on_btn_click(e):
-        nonlocal current_task_idx, workout_plan
+    async def on_btn_click(e):
+        nonlocal current_task_idx, workout_plan, work_task, rest_task
         
         # 阶段一：首次点击，解析文本
         if btn_action.content == "解析并开始训练" or btn_action.content == "重新开始":
@@ -462,40 +464,40 @@ async def main(page: ft.Page):
                 lbl_detail.value = "保持节奏"
                 btn_action.content = "计时中..."
                 page.update()
-                threading.Thread(
-                    target=run_work_timer,
-                    args=(int(tgt["seconds"]), int(task["rest"])),
-                    daemon=True,
-                ).start()
+                work_task = page.run_task(
+                    run_work_timer,
+                    int(tgt["seconds"]),
+                    int(task["rest"]),
+                )
             else:
                 lbl_status.value = "休息中..."
                 lbl_detail.value = "深呼吸，准备下一组"
                 btn_action.content = "倒计时中..."
                 page.update()
-                # 开启新线程跑倒计时，防止UI卡死
-                threading.Thread(target=run_rest_timer, args=(task["rest"],), daemon=True).start()
+                rest_task = page.run_task(run_rest_timer, int(task["rest"]))
 
     # 绑定按钮事件
     btn_action.on_click = on_btn_click
 
     def on_pause_click(e):
+        nonlocal rest_paused
         # toggle pause/resume
         if not is_resting:
             return
-        if rest_pause_event.is_set():
-            rest_pause_event.clear()
+        if not rest_paused:
+            rest_paused = True
             btn_pause.content = "继续"
         else:
-            rest_pause_event.set()
+            rest_paused = False
             btn_pause.content = "暂停"
         page.update()
 
     def on_stop_click(e):
-        nonlocal workout_plan, current_task_idx, is_resting
+        nonlocal workout_plan, current_task_idx, is_resting, rest_cancelled, rest_paused
         if not is_resting:
             return
-        rest_cancel_event.set()
-        rest_pause_event.set()
+        rest_cancelled = True
+        rest_paused = False
         workout_plan = []
         current_task_idx = 0
         txt_input.visible = True
@@ -508,22 +510,23 @@ async def main(page: ft.Page):
     btn_stop.on_click = on_stop_click
 
     def on_work_pause_click(e):
+        nonlocal work_paused
         if not is_working:
             return
-        if work_pause_event.is_set():
-            work_pause_event.clear()
+        if not work_paused:
+            work_paused = True
             btn_work_pause.content = "继续"
         else:
-            work_pause_event.set()
+            work_paused = False
             btn_work_pause.content = "暂停"
         page.update()
 
     def on_work_stop_click(e):
-        nonlocal is_working
+        nonlocal is_working, work_cancelled, work_paused
         if not is_working:
             return
-        work_cancel_event.set()
-        work_pause_event.set()
+        work_cancelled = True
+        work_paused = False
         lbl_work_timer.visible = False
         btn_work_pause.visible = False
         btn_work_stop.visible = False
