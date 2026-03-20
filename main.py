@@ -24,6 +24,7 @@ async def main(page: ft.Page):
     current_task_idx = 0
     rest_cancelled = False
     rest_paused = False
+    rest_skip_requested = False
     rest_task = None
     is_resting = False
 
@@ -31,7 +32,6 @@ async def main(page: ft.Page):
     work_paused = False
     work_task = None
     is_working = False
-    is_manual_resting = False
     is_training_active = False
     
     # 提示音：使用 flet-audio 插件（支持移动端）
@@ -49,9 +49,11 @@ async def main(page: ft.Page):
 
     # SharedPreferences service might be unavailable in some runtimes;
     # fall back to in-memory storage to keep app usable.
-    plans, last_plan_id, initial_text = await init_plans_state(
+    plans, last_plan_id, _initial_text_from_storage = await init_plans_state(
         prefs, STORAGE_KEY, LAST_PLAN_ID_KEY
     )
+    # 产品体验：默认打开应用时输入框保持空白，用户可自行新建或在计划页选择历史计划。
+    initial_text = ""
 
     # 输入框（用户手写或粘贴计划）
     txt_input = ft.TextField(
@@ -61,7 +63,11 @@ async def main(page: ft.Page):
         hint_text="输入格式例如:\n俯卧撑 | 4组 | 力竭 | 休90\n深蹲 | 3组 | 15次 | 休60",
         value=initial_text
     )
-    lbl_plan_title = ft.Text(f"当前计划：{_infer_plan_name(initial_text)}", size=18, weight=ft.FontWeight.BOLD)
+    lbl_plan_title = ft.Text(
+        f"当前计划：{_infer_plan_name(initial_text) if (initial_text or '').strip() else '未选择'}",
+        size=18,
+        weight=ft.FontWeight.BOLD,
+    )
 
     def on_input_change(e):
         lbl_plan_title.value = f"当前计划：{_infer_plan_name(txt_input.value or '')}"
@@ -83,7 +89,7 @@ async def main(page: ft.Page):
     # 按钮
     btn_action = ft.Button(content="解析并开始训练", width=200, height=50)
     btn_pause = ft.Button(content="暂停", width=100, height=40, visible=False, disabled=True)
-    btn_stop = ft.Button(content="终止", width=100, height=40, visible=False, disabled=True)
+    btn_stop = ft.Button(content="跳过", width=100, height=40, visible=False, disabled=True)
     btn_work_pause = ft.Button(content="暂停", width=100, height=40, visible=False, disabled=True)
     btn_work_stop = ft.Button(content="结束本组", width=110, height=40, visible=False, disabled=True)
     btn_abort_training = ft.Button(
@@ -99,6 +105,7 @@ async def main(page: ft.Page):
     btn_save_plan = ft.Button(content="保存为新计划", width=120, height=40)
     btn_update_plan = ft.Button(content="保存修改", width=100, height=40)
     btn_delete_plan = ft.Button(content="删除计划", width=100, height=40)
+    btn_load_plan = ft.Button(content="加载到首页", width=120, height=40)
 
     def _refresh_plan_dropdown(selected_id: str | None = None):
         _debug(f"_refresh_plan_dropdown(selected_id={selected_id}, total={len(plans)})")
@@ -114,26 +121,62 @@ async def main(page: ft.Page):
             dd_plans.value = sorted(plans.keys())[0]
         page.update()
 
-    async def _apply_plan(plan_id: str):
+    def _apply_plan(plan_id: str):
         nonlocal last_plan_id
+        nonlocal is_training_active
+        nonlocal rest_cancelled, rest_paused, is_resting
+        nonlocal work_cancelled, work_paused, is_working
         _debug(f"_apply_plan(plan_id={plan_id})")
         if plan_id not in plans:
             _debug(f"_apply_plan skipped: missing plan_id={plan_id}")
             return
+
+        # 切换计划时强制回到可编辑态，避免“训练中隐藏输入框导致看起来没更新”。
+        rest_cancelled = True
+        rest_paused = False
+        work_cancelled = True
+        work_paused = False
+        is_resting = False
+        is_working = False
+        is_training_active = False
+        lbl_timer.visible = False
+        lbl_work_timer.visible = False
+        btn_pause.visible = False
+        btn_stop.visible = False
+        btn_work_pause.visible = False
+        btn_work_stop.visible = False
+        btn_pause.disabled = True
+        btn_stop.disabled = True
+        btn_work_pause.disabled = True
+        btn_work_stop.disabled = True
+        btn_abort_training.visible = False
+        btn_action.disabled = False
+        btn_action.content = "解析并开始训练"
+        txt_input.visible = True
+
         txt_input.value = plans[plan_id].get("text", "") or ""
         lbl_plan_title.value = f"当前计划：{_infer_plan_name(txt_input.value)}"
-        await set_last_plan_id(prefs, LAST_PLAN_ID_KEY, plan_id)
+        lbl_status.value = "准备开始"
+        lbl_detail.value = "计划已切换，可直接开始训练"
         last_plan_id = plan_id
+        page.run_task(set_last_plan_id, prefs, LAST_PLAN_ID_KEY, plan_id)
         page.update()
 
-    async def on_plan_change(e):
-        _debug(f"on_plan_change triggered, dd_plans.value={dd_plans.value}")
-        if dd_plans.value:
-            await _apply_plan(dd_plans.value)
-            if auto_back_home_after_plan_select:
-                _set_tab("home")
+    def on_plan_change(e):
+        pid = (getattr(e, "control", None).value if getattr(e, "control", None) else None) or dd_plans.value
+        _debug(f"on_plan_change triggered, pid={pid}")
 
     dd_plans.on_change = on_plan_change
+
+    def on_load_plan_click(e):
+        pid = dd_plans.value
+        _debug(f"on_load_plan_click pid={pid}")
+        if not pid:
+            return
+        _apply_plan(pid)
+        _set_tab("home")
+
+    btn_load_plan.on_click = on_load_plan_click
 
     async def on_save_plan(e):
         nonlocal plans, last_plan_id
@@ -196,7 +239,7 @@ async def main(page: ft.Page):
         await set_last_plan_id(prefs, LAST_PLAN_ID_KEY, next_id)
         last_plan_id = next_id
         _refresh_plan_dropdown(next_id)
-        await _apply_plan(next_id)
+        _apply_plan(next_id)
         _debug(f"_delete_plan_confirmed done, next_id={next_id}")
 
     async def on_delete_plan(e):
@@ -207,7 +250,6 @@ async def main(page: ft.Page):
 
     _refresh_plan_dropdown(last_plan_id)
 
-    auto_back_home_after_plan_select = True
     current_tab = "home"
     btn_nav_home = ft.Button(content="首页", width=96, height=44, disabled=True)
     btn_nav_plan = ft.Button(content="计划", width=96, height=44)
@@ -272,7 +314,7 @@ async def main(page: ft.Page):
 
     async def run_rest_timer(seconds):
         """后台倒计时线程"""
-        nonlocal is_resting, rest_cancelled, rest_paused
+        nonlocal is_resting, rest_cancelled, rest_paused, rest_skip_requested
         is_resting = True
         rest_cancelled = False
         rest_paused = False
@@ -306,15 +348,33 @@ async def main(page: ft.Page):
         
         # 准备进入下一个动作
         lbl_timer.visible = False
-        btn_action.disabled = False
         btn_pause.disabled = True
         btn_stop.disabled = True
         btn_pause.visible = False
         btn_stop.visible = False
-        btn_action.content = "完成本组，开始休息" if not canceled else "重新开始"
         is_resting = False
-        update_ui_for_current_task()
-        page.update()
+
+        if canceled:
+            if rest_skip_requested:
+                rest_skip_requested = False
+                if current_task_idx < len(workout_plan):
+                    page.run_task(run_prep_countdown)
+                else:
+                    btn_action.disabled = False
+                    update_ui_for_current_task()
+                    page.update()
+                return
+            btn_action.disabled = False
+            btn_action.content = "重新开始"
+            page.update()
+            return
+
+        if current_task_idx < len(workout_plan):
+            page.run_task(run_prep_countdown)
+        else:
+            btn_action.disabled = False
+            update_ui_for_current_task()
+            page.update()
 
     def update_ui_for_current_task():
         nonlocal current_task_idx, is_training_active
@@ -333,25 +393,19 @@ async def main(page: ft.Page):
             btn_abort_training.visible = False
             is_training_active = False
 
-    def _next_step_label(just_finished_task: dict) -> str:
-        if current_task_idx >= len(workout_plan):
-            return "完成训练"
-        nxt = workout_plan[current_task_idx]
-        return "下一组" if nxt.get("name") == just_finished_task.get("name") else "下一个动作"
-
     def _reset_to_home_after_abort():
         nonlocal workout_plan, current_task_idx
-        nonlocal rest_cancelled, rest_paused, is_resting
+        nonlocal rest_cancelled, rest_paused, rest_skip_requested, is_resting
         nonlocal work_cancelled, work_paused, is_working
-        nonlocal is_manual_resting, is_training_active
+        nonlocal is_training_active
 
         rest_cancelled = True
         rest_paused = False
+        rest_skip_requested = False
         work_cancelled = True
         work_paused = False
         is_resting = False
         is_working = False
-        is_manual_resting = False
         is_training_active = False
         workout_plan = []
         current_task_idx = 0
@@ -375,8 +429,44 @@ async def main(page: ft.Page):
         _set_tab("home")
         page.update()
 
+    async def run_prep_countdown():
+        """每项动作开始前 3 秒准备倒计时。"""
+        nonlocal is_training_active
+        if not is_training_active:
+            return
+        if current_task_idx >= len(workout_plan):
+            update_ui_for_current_task()
+            return
+        task = workout_plan[current_task_idx]
+        lbl_status.value = "准备动作..."
+        lbl_detail.value = f"{task['name']}  {task['set_info']}"
+        lbl_timer.visible = True
+        btn_action.disabled = True
+        btn_action.content = "准备中..."
+        page.update()
+
+        for i in [3, 2, 1]:
+            if not is_training_active:
+                return
+            lbl_timer.value = f"00:0{i}"
+            page.update()
+            await countdown(
+                0,
+                on_tick=lambda _r: None,
+                is_cancelled=lambda: not is_training_active,
+                is_paused=lambda: False,
+            )
+
+        if not is_training_active:
+            return
+        lbl_timer.visible = False
+        btn_action.disabled = False
+        btn_action.content = "完成本组，开始休息"
+        update_ui_for_current_task()
+        page.update()
+
     async def on_btn_click(e):
-        nonlocal current_task_idx, workout_plan, work_task, rest_task, is_manual_resting, is_training_active
+        nonlocal current_task_idx, workout_plan, work_task, rest_task, is_training_active
         
         # 阶段一：首次点击，解析文本
         if btn_action.content == "解析并开始训练" or btn_action.content == "重新开始":
@@ -387,26 +477,11 @@ async def main(page: ft.Page):
                 return
             
             current_task_idx = 0
-            is_manual_resting = False
             is_training_active = True
             txt_input.visible = False # 隐藏输入框，进入专注模式
-            btn_action.content = "完成本组，开始休息"
+            btn_action.content = "准备中..."
             btn_abort_training.visible = True
-            update_ui_for_current_task()
-            page.update()
-            return
-
-        if is_manual_resting:
-            is_manual_resting = False
-            if current_task_idx < len(workout_plan):
-                btn_action.content = "完成本组，开始休息"
-                update_ui_for_current_task()
-            else:
-                lbl_status.value = "🎉 训练全部完成！"
-                lbl_detail.value = "去喝点蛋白粉吧！"
-                btn_action.content = "重新开始"
-                btn_abort_training.visible = False
-                is_training_active = False
+            page.run_task(run_prep_countdown)
             page.update()
             return
             
@@ -427,14 +502,12 @@ async def main(page: ft.Page):
                     int(task["rest"]),
                 )
             else:
-                # 次数目标：改为手动流转，不自动进入倒计时
-                next_label = _next_step_label(task)
-                is_manual_resting = True
-                rest_hint = f"建议休息 {int(task.get('rest', 0))} 秒后继续。" if int(task.get("rest", 0)) > 0 else "可直接继续。"
-                lbl_status.value = "休息一下"
-                lbl_detail.value = f"已完成 {task['name']}，下一步：{next_label}。{rest_hint}"
-                btn_action.content = f"继续（{next_label}）"
+                # 次数目标：同样进入休息倒计时，保持一致体验。
+                lbl_status.value = "休息中..."
+                lbl_detail.value = "深呼吸，准备下一组"
+                btn_action.content = "倒计时中..."
                 page.update()
+                rest_task = page.run_task(run_rest_timer, int(task["rest"]))
 
     # 绑定按钮事件
     btn_action.on_click = on_btn_click
@@ -453,19 +526,15 @@ async def main(page: ft.Page):
         page.update()
 
     def on_stop_click(e):
-        nonlocal workout_plan, current_task_idx, is_resting, rest_cancelled, rest_paused, is_training_active
+        nonlocal is_resting, rest_cancelled, rest_paused, rest_skip_requested
         if not is_resting:
             return
+        # 跳过当前休息倒计时，不终止本次训练
+        rest_skip_requested = True
         rest_cancelled = True
         rest_paused = False
-        workout_plan = []
-        current_task_idx = 0
-        txt_input.visible = True
-        lbl_status.value = "已终止"
-        lbl_detail.value = "你可以修改计划并重新开始"
-        btn_action.content = "重新开始"
-        btn_abort_training.visible = False
-        is_training_active = False
+        lbl_status.value = "已跳过休息"
+        lbl_detail.value = "正在进入下一项准备..."
         page.update()
 
     btn_pause.on_click = on_pause_click
@@ -497,32 +566,10 @@ async def main(page: ft.Page):
         btn_action.content = "完成本组，开始休息"
         page.update()
 
-    async def on_abort_training_click(e):
+    def on_abort_training_click(e):
         if not is_training_active:
             return
-        page.dialog = dlg_abort_training
-        dlg_abort_training.open = True
-        page.update()
-
-    def on_cancel_abort(e):
-        dlg_abort_training.open = False
-        page.update()
-
-    async def on_confirm_abort(e):
-        dlg_abort_training.open = False
-        page.update()
         _reset_to_home_after_abort()
-
-    dlg_abort_training = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("确认终止训练"),
-        content=ft.Text("确定要终止本次训练吗？当前进度将不会保留。"),
-        actions_alignment=ft.MainAxisAlignment.END,
-        actions=[
-            ft.TextButton("取消", on_click=on_cancel_abort),
-            ft.TextButton("确认终止", on_click=on_confirm_abort),
-        ],
-    )
 
     btn_abort_training.on_click = on_abort_training_click
 
@@ -576,18 +623,9 @@ async def main(page: ft.Page):
         btn_abort_training=btn_abort_training,
     )
 
-    cb_auto_back = ft.Checkbox(label="选择历史计划后自动返回首页", value=auto_back_home_after_plan_select)
-
-    def on_auto_back_toggle(e):
-        nonlocal auto_back_home_after_plan_select
-        auto_back_home_after_plan_select = bool(cb_auto_back.value)
-        _debug(f"auto_back_home_after_plan_select={auto_back_home_after_plan_select}")
-
-    cb_auto_back.on_change = on_auto_back_toggle
-
     plan_view = build_plan_view(
-        cb_auto_back=cb_auto_back,
         dd_plans=dd_plans,
+        btn_load_plan=btn_load_plan,
         btn_save_plan=btn_save_plan,
         btn_update_plan=btn_update_plan,
         btn_delete_plan=btn_delete_plan,

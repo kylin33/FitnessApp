@@ -60,8 +60,8 @@ def build_home_view(
 
 
 def build_plan_view(
-    cb_auto_back: ft.Control,
     dd_plans: ft.Control,
+    btn_load_plan: ft.Control,
     btn_save_plan: ft.Control,
     btn_update_plan: ft.Control,
     btn_delete_plan: ft.Control,
@@ -73,8 +73,8 @@ def build_plan_view(
             controls=[
                 ft.Text("计划管理", size=24, weight=ft.FontWeight.BOLD),
                 ft.Text("在这里选择历史计划，或保存/修改/删除计划。", color=ft.Colors.GREY_400),
-                cb_auto_back,
                 dd_plans,
+                btn_load_plan,
                 ft.Row([btn_save_plan, btn_update_plan], spacing=10),
                 ft.Row([btn_delete_plan], spacing=10),
             ],
