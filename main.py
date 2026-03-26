@@ -37,6 +37,18 @@ async def main(page: ft.Page):
     # 提示音：使用 flet-audio 插件（支持移动端）
     # 部分客户端不支持第三方 Audio 控件，直接禁用以保证界面稳定。
     audio_player = None
+    wakelock = ft.Wakelock()
+
+    async def _set_keep_awake(enabled: bool):
+        try:
+            if enabled:
+                await wakelock.enable()
+                _debug("wakelock enabled")
+            else:
+                await wakelock.disable()
+                _debug("wakelock disabled")
+        except Exception as ex:
+            _debug(f"wakelock error: {ex}")
 
     # --- 2. UI 控件 ---
     # 计划存储（本地持久化到客户端）
@@ -139,6 +151,7 @@ async def main(page: ft.Page):
         is_resting = False
         is_working = False
         is_training_active = False
+        page.run_task(_set_keep_awake, False)
         lbl_timer.visible = False
         lbl_work_timer.visible = False
         btn_pause.visible = False
@@ -392,6 +405,7 @@ async def main(page: ft.Page):
             btn_action.content = "重新开始"
             btn_abort_training.visible = False
             is_training_active = False
+            page.run_task(_set_keep_awake, False)
 
     def _reset_to_home_after_abort():
         nonlocal workout_plan, current_task_idx
@@ -407,6 +421,7 @@ async def main(page: ft.Page):
         is_resting = False
         is_working = False
         is_training_active = False
+        page.run_task(_set_keep_awake, False)
         workout_plan = []
         current_task_idx = 0
 
@@ -478,6 +493,7 @@ async def main(page: ft.Page):
             
             current_task_idx = 0
             is_training_active = True
+            page.run_task(_set_keep_awake, True)
             txt_input.visible = False # 隐藏输入框，进入专注模式
             btn_action.content = "准备中..."
             btn_abort_training.visible = True
@@ -682,6 +698,7 @@ async def main(page: ft.Page):
 
     page.on_resize = on_page_resize
     _apply_responsive_layout()
+    page.run_task(_set_keep_awake, False)
 
 # 运行APP
 ft.run(main)
