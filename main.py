@@ -34,8 +34,7 @@ async def main(page: ft.Page):
     is_working = False
     is_training_active = False
     
-    # 提示音：使用 flet-audio 插件（支持移动端）
-    # 部分客户端不支持第三方 Audio 控件，直接禁用以保证界面稳定。
+    # 提示音当前关闭，避免引入额外插件依赖和移动端兼容性问题。
     audio_player = None
     wakelock = ft.Wakelock()
 
