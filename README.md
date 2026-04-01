@@ -1,21 +1,18 @@
 # FitnessApp
-android app for fit 
 
-## Android permission
+Android fitness timer app built with Kotlin + Jetpack Compose.
 
-The build configuration is defined in `pyproject.toml`.
+## Local build
 
-Current size-oriented defaults:
+Use the Gradle wrapper committed in this repo:
 
-- exclude `.git`, `.github`, `.venv` and caches from the packaged app
-- split Android builds per ABI to avoid a single fat APK
-- keep only the `WAKE_LOCK` Android permission required by this app
+- Run unit tests: `./gradlew testDebugUnitTest`
+- Build debug APK: `./gradlew assembleDebug`
 
-Recommended build commands:
+The generated APK will be written to:
 
-- Play Store: `flet build aab`
-- Local install with smaller APKs: `flet build apk`
+- `app/build/outputs/apk/debug/`
 
-If you only need a package for a real Android phone, you can further reduce output size by building only arm64:
+## GitHub Actions
 
-`flet build apk --arch arm64-v8a`
+The workflow in `.github/workflows/build.yml` builds the Android app on every push, pull request, and manual dispatch. It validates the Gradle wrapper, runs unit tests, assembles a debug APK, and uploads the APK as an artifact.
