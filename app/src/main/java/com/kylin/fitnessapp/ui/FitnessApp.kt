@@ -20,7 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -233,6 +233,7 @@ private fun TrainingScreen(
                     )
                 }
             }
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
@@ -355,7 +356,7 @@ private fun PlansScreen(
             }
         }
 
-        Divider()
+        HorizontalDivider()
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
