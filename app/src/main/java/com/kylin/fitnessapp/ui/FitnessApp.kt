@@ -27,16 +27,21 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kylin.fitnessapp.workout.AppTab
 import com.kylin.fitnessapp.workout.SavedPlan
@@ -47,10 +52,23 @@ import com.kylin.fitnessapp.workout.currentCountdownLabel
 import com.kylin.fitnessapp.workout.isPrimaryActionEnabled
 import com.kylin.fitnessapp.workout.primaryActionLabel
 import com.kylin.fitnessapp.workout.selectedPlan
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun FitnessApp(workoutViewModel: WorkoutViewModel) {
     val uiState by workoutViewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val soundPlayer = remember(context) { PromptSoundPlayer(context) }
+
+    DisposableEffect(soundPlayer) {
+        onDispose { soundPlayer.release() }
+    }
+
+    LaunchedEffect(workoutViewModel, soundPlayer) {
+        workoutViewModel.soundEvents.collectLatest { event ->
+            soundPlayer.play(event)
+        }
+    }
 
     MaterialTheme {
         Scaffold(
@@ -62,7 +80,7 @@ fun FitnessApp(workoutViewModel: WorkoutViewModel) {
                         icon = {
                             TabDot(selected = uiState.currentTab == AppTab.Home)
                         },
-                        label = { Text("首页") },
+                        label = { Text("训练") },
                     )
                     NavigationBarItem(
                         selected = uiState.currentTab == AppTab.Plans,
@@ -72,15 +90,23 @@ fun FitnessApp(workoutViewModel: WorkoutViewModel) {
                         },
                         label = { Text("计划") },
                     )
+                    NavigationBarItem(
+                        selected = uiState.currentTab == AppTab.Profile,
+                        onClick = { workoutViewModel.selectTab(AppTab.Profile) },
+                        icon = {
+                            TabDot(selected = uiState.currentTab == AppTab.Profile)
+                        },
+                        label = { Text("我的") },
+                    )
                 }
             }
         ) { innerPadding ->
             Surface(modifier = Modifier.fillMaxSize()) {
                 when (uiState.currentTab) {
-                    AppTab.Home -> HomeScreen(
+                    AppTab.Home -> TrainingScreen(
                         uiState = uiState,
                         innerPadding = innerPadding,
-                        onPlanTextChange = workoutViewModel::updatePlanText,
+                        onOpenPlansTab = { workoutViewModel.selectTab(AppTab.Plans) },
                         onPrimaryAction = workoutViewModel::onPrimaryAction,
                         onAbortTraining = workoutViewModel::abortTraining,
                         onToggleRestPause = workoutViewModel::toggleRestPause,
@@ -97,6 +123,13 @@ fun FitnessApp(workoutViewModel: WorkoutViewModel) {
                         onSaveAsNew = workoutViewModel::saveCurrentPlanAsNew,
                         onUpdateSelectedPlan = workoutViewModel::updateSelectedPlan,
                         onDeleteSelectedPlan = workoutViewModel::deleteSelectedPlan,
+                        onPlanTextChange = workoutViewModel::updatePlanText,
+                    )
+
+                    AppTab.Profile -> ProfileScreen(
+                        uiState = uiState,
+                        innerPadding = innerPadding,
+                        onSoundEnabledChange = workoutViewModel::setSoundEnabled,
                     )
                 }
             }
@@ -105,10 +138,10 @@ fun FitnessApp(workoutViewModel: WorkoutViewModel) {
 }
 
 @Composable
-private fun HomeScreen(
+private fun TrainingScreen(
     uiState: WorkoutUiState,
     innerPadding: PaddingValues,
-    onPlanTextChange: (String) -> Unit,
+    onOpenPlansTab: () -> Unit,
     onPrimaryAction: () -> Unit,
     onAbortTraining: () -> Unit,
     onToggleRestPause: () -> Unit,
@@ -129,7 +162,26 @@ private fun HomeScreen(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
         )
-        Text(text = uiState.planName, style = MaterialTheme.typography.headlineSmall)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(text = "当前计划", style = MaterialTheme.typography.labelLarge)
+                Text(text = uiState.planName, style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = "编辑计划请前往“计划”页",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         Text(text = uiState.statusText, style = MaterialTheme.typography.headlineMedium)
         Text(text = uiState.detailText, style = MaterialTheme.typography.bodyLarge)
 
@@ -156,13 +208,9 @@ private fun HomeScreen(
         }
 
         if (!uiState.isTrainingActive) {
-            OutlinedTextField(
-                value = uiState.planText,
-                onValueChange = onPlanTextChange,
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 8,
-                label = { Text("训练计划") },
-            )
+            OutlinedButton(onClick = onOpenPlansTab) {
+                Text("去计划页编辑")
+            }
         } else {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -180,12 +228,11 @@ private fun HomeScreen(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "训练进行中，计划文本已隐藏。可在“计划”页管理已保存方案。",
+                        text = "训练进行中，已隐藏计划编辑入口。",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
             }
-        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(
@@ -249,6 +296,7 @@ private fun PlansScreen(
     onSaveAsNew: () -> Unit,
     onUpdateSelectedPlan: () -> Unit,
     onDeleteSelectedPlan: () -> Unit,
+    onPlanTextChange: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -259,9 +307,16 @@ private fun PlansScreen(
     ) {
         Text(text = "计划管理", style = MaterialTheme.typography.headlineSmall)
         Text(
-            text = "选择历史计划，加载到首页后即可编辑或直接开始训练。",
+            text = "选择历史计划，加载到训练页后即可直接开始训练。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = uiState.planText,
+            onValueChange = onPlanTextChange,
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 6,
+            label = { Text("计划文本") },
         )
 
         uiState.selectedPlan?.let { plan ->
@@ -307,7 +362,7 @@ private fun PlansScreen(
                 onClick = onLoadSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
-                Text("加载到首页")
+                Text("加载到训练页")
             }
             OutlinedButton(onClick = onSaveAsNew, enabled = !uiState.isLoadingPlans) {
                 Text("保存为新计划")
@@ -332,6 +387,62 @@ private fun PlansScreen(
         uiState.planMessage?.let {
             Text(text = it, color = MaterialTheme.colorScheme.primary)
         }
+        uiState.storageError?.let {
+            Text(text = it, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun ProfileScreen(
+    uiState: WorkoutUiState,
+    innerPadding: PaddingValues,
+    onSoundEnabledChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .padding(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(text = "我的", style = MaterialTheme.typography.headlineSmall)
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("提示音", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = "倒计时与阶段切换时播放 ding.wav",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = uiState.isSoundEnabled,
+                    onCheckedChange = onSoundEnabledChange,
+                )
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "训练概览", style = MaterialTheme.typography.titleMedium)
+                Text(text = "计划总数：${uiState.plans.size}")
+                Text(text = "当前计划：${uiState.planName}")
+                Text(text = "当前状态：${uiState.statusText}")
+            }
+        }
+
         uiState.storageError?.let {
             Text(text = it, color = MaterialTheme.colorScheme.error)
         }

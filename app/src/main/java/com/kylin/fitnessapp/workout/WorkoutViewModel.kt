@@ -6,7 +6,10 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -15,6 +18,8 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
     private val repository = PlanRepository(application.applicationContext)
     private val _uiState = MutableStateFlow(WorkoutUiState())
     val uiState: StateFlow<WorkoutUiState> = _uiState.asStateFlow()
+    private val _soundEvents = MutableSharedFlow<WorkoutSoundEvent>(extraBufferCapacity = 16)
+    val soundEvents: SharedFlow<WorkoutSoundEvent> = _soundEvents.asSharedFlow()
 
     private var countdownJob: Job? = null
 
@@ -42,6 +47,19 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         persistSelectedPlan(planId)
     }
 
+    fun setSoundEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isSoundEnabled = enabled, storageError = null) }
+        viewModelScope.launch {
+            runCatching {
+                repository.saveSoundEnabled(enabled)
+            }.onFailure {
+                _uiState.update { state ->
+                    state.copy(storageError = "提示音设置保存失败")
+                }
+            }
+        }
+    }
+
     fun loadSelectedPlan() {
         val plan = _uiState.value.selectedPlan ?: return
         stopCountdown()
@@ -52,7 +70,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     selectedPlanId = plan.id,
                     planText = plan.text,
                     planName = plan.name,
-                    planMessage = "计划已加载到首页",
+                    planMessage = "计划已加载到训练页",
                     storageError = null,
                 ),
                 statusText = "准备开始",
@@ -170,7 +188,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     storageError = null,
                 ),
                 statusText = "已终止",
-                detailText = "训练已终止，已返回首页。",
+                detailText = "训练已终止，已返回训练页。",
                 stage = WorkoutStage.Aborted,
             )
         }
@@ -282,6 +300,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         restRemainingSeconds = null,
                     )
                 }
+                emitSound(WorkoutSoundEvent.CountdownTick)
                 delay(1_000)
             }
 
@@ -312,6 +331,9 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         workRemainingSeconds = remaining,
                         restRemainingSeconds = null,
                     )
+                }
+                if (remaining == 0) {
+                    emitSound(WorkoutSoundEvent.StageTransition)
                 }
                 if (remaining > 0) {
                     delay(1_000)
@@ -345,6 +367,9 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         restRemainingSeconds = remaining,
                     )
                 }
+                if (remaining == 0) {
+                    emitSound(WorkoutSoundEvent.StageTransition)
+                }
                 if (remaining > 0) {
                     delay(1_000)
                 }
@@ -361,6 +386,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         val tasks = state.parsedTasks
 
         if (nextIndex >= tasks.size) {
+            emitSound(WorkoutSoundEvent.SessionComplete)
             _uiState.update {
                 resetTrainingState(
                     it.copy(activeTaskIndex = tasks.lastIndex.coerceAtLeast(0)),
@@ -424,6 +450,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                             planName = resolved.selectedPlan.name,
                             currentTab = AppTab.Home,
                             isLoadingPlans = false,
+                            isSoundEnabled = snapshot.isSoundEnabled,
                             planMessage = null,
                             storageError = null,
                             parseError = null,
@@ -444,6 +471,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                             planName = fallbackPlan.name,
                             currentTab = AppTab.Home,
                             isLoadingPlans = false,
+                            isSoundEnabled = true,
                             planMessage = null,
                             storageError = "计划存储读取失败，已使用内置默认计划",
                             parseError = null,
@@ -543,6 +571,12 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         return when (val target = task.target) {
             is WorkoutTarget.Time -> "${task.setInfo}  目标: ${target.seconds} 秒"
             is WorkoutTarget.Reps -> "${task.setInfo}  目标: ${target.text}"
+        }
+    }
+
+    private fun emitSound(event: WorkoutSoundEvent) {
+        if (_uiState.value.isSoundEnabled) {
+            _soundEvents.tryEmit(event)
         }
     }
 

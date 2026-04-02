@@ -1,6 +1,7 @@
 package com.kylin.fitnessapp.workout
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -16,6 +17,7 @@ class PlanRepository(private val context: Context) {
         return PlanSnapshot(
             plans = decodePlans(preferences[PLANS_KEY]),
             lastPlanId = preferences[LAST_PLAN_ID_KEY],
+            isSoundEnabled = preferences[SOUND_ENABLED_KEY] ?: true,
         )
     }
 
@@ -27,6 +29,12 @@ class PlanRepository(private val context: Context) {
             } else {
                 preferences[LAST_PLAN_ID_KEY] = lastPlanId
             }
+        }
+    }
+
+    suspend fun saveSoundEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SOUND_ENABLED_KEY] = enabled
         }
     }
 
@@ -72,10 +80,12 @@ class PlanRepository(private val context: Context) {
     data class PlanSnapshot(
         val plans: List<SavedPlan>,
         val lastPlanId: String?,
+        val isSoundEnabled: Boolean,
     )
 
     private companion object {
         val PLANS_KEY = stringPreferencesKey("plans_v1")
         val LAST_PLAN_ID_KEY = stringPreferencesKey("last_plan_id_v1")
+        val SOUND_ENABLED_KEY = booleanPreferencesKey("sound_enabled_v1")
     }
 }

@@ -9,6 +9,13 @@ data class SavedPlan(
 enum class AppTab {
     Home,
     Plans,
+    Profile,
+}
+
+enum class WorkoutSoundEvent {
+    CountdownTick,
+    StageTransition,
+    SessionComplete,
 }
 
 data class WorkoutTask(
@@ -54,6 +61,7 @@ data class WorkoutUiState(
     val isTrainingActive: Boolean = false,
     val isWorkPaused: Boolean = false,
     val isRestPaused: Boolean = false,
+    val isSoundEnabled: Boolean = true,
 )
 
 val WorkoutUiState.currentTask: WorkoutTask?
