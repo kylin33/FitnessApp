@@ -12,8 +12,8 @@ android {
         minSdk = 26
         targetSdk = 34
 
-        def ciVersionCode = project.hasProperty('VERSION_CODE') ? project.property('VERSION_CODE').toInteger() : 1
-        def ciVersionName = project.hasProperty('VERSION_NAME') ? project.property('VERSION_NAME') : "1.0.0"
+        val ciVersionCode = (project.findProperty("VERSION_CODE") as? String)?.toInt() ?: 1
+        val ciVersionName = (project.findProperty("VERSION_NAME") as? String) ?: "1.0.0"
 
         versionCode = ciVersionCode
         versionName = ciVersionName
