@@ -11,8 +11,12 @@ android {
         applicationId = "com.kylin.fitnessapp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+
+        def ciVersionCode = project.hasProperty('VERSION_CODE') ? project.property('VERSION_CODE').toInteger() : 1
+        def ciVersionName = project.hasProperty('VERSION_NAME') ? project.property('VERSION_NAME') : "1.0.0"
+
+        versionCode = ciVersionCode
+        versionName = ciVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

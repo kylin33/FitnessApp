@@ -34,7 +34,12 @@ jobs:
         run: ./gradlew testDebugUnitTest
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        env:
+          VERSION_NAME: "1.0.${{ github.run_number }}"
+          VERSION_CODE: ${{ github.run_number }}
+        run: ./gradlew assembleDebug    \
+            -PVERSION_CODE=$VERSION_CODE \
+            -PVERSION_NAME=$VERSION_NAME
 
       - name: Upload unit test reports
         if: always()
