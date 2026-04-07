@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -315,8 +316,11 @@ private fun PlansScreen(
         OutlinedTextField(
             value = uiState.planText,
             onValueChange = onPlanTextChange,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 144.dp, max = 320.dp),
             minLines = 6,
+            maxLines = 12,
             label = { Text("计划文本") },
         )
 
@@ -332,7 +336,12 @@ private fun PlansScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(text = "当前选择", style = MaterialTheme.typography.labelLarge)
-                    Text(text = plan.name, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        text = plan.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(
                         text = plan.text.lineSequence().firstOrNull().orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
@@ -358,26 +367,39 @@ private fun PlansScreen(
 
         HorizontalDivider()
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Button(
+                modifier = Modifier.weight(1f),
                 onClick = onLoadSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
                 Text("加载到训练页")
             }
-            OutlinedButton(onClick = onSaveAsNew, enabled = !uiState.isLoadingPlans) {
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                onClick = onSaveAsNew,
+                enabled = !uiState.isLoadingPlans,
+            ) {
                 Text("保存为新计划")
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Button(
+                modifier = Modifier.weight(1f),
                 onClick = onUpdateSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
                 Text("保存修改")
             }
             OutlinedButton(
+                modifier = Modifier.weight(1f),
                 onClick = onDeleteSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
@@ -499,7 +521,12 @@ private fun PlanListItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(text = plan.name, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = plan.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     text = plan.text.lineSequence().firstOrNull().orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
