@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,8 +44,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kylin.fitnessapp.workout.AppTab
 import com.kylin.fitnessapp.workout.SavedPlan
@@ -302,138 +304,166 @@ private fun PlansScreen(
     onDeleteSelectedPlan: () -> Unit,
     onPlanTextChange: (String) -> Unit,
 ) {
-    Column(
+    val configuration = LocalConfiguration.current
+    val isCompactHeight = configuration.screenHeightDp < 700
+    val editorMinLines = if (isCompactHeight) 4 else 6
+    val editorMaxLines = if (isCompactHeight) 8 else 12
+    val editorMinHeight = if (isCompactHeight) 112.dp else 144.dp
+    val editorMaxHeight = if (isCompactHeight) 220.dp else 320.dp
+
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
-            .padding(horizontal = 18.dp, vertical = 20.dp),
+            .padding(horizontal = 18.dp, vertical = 20.dp)
+            .imePadding(),
+        contentPadding = PaddingValues(bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(text = "计划管理", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            text = "选择历史计划，加载到训练页后即可直接开始训练。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                value = uiState.planText,
-                onValueChange = onPlanTextChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = maxWidth)
-                    .heightIn(min = 144.dp, max = 320.dp),
-                minLines = 6,
-                maxLines = 12,
-                singleLine = false,
-                label = { Text("计划文本") },
+        item {
+            Text(text = "计划管理", style = MaterialTheme.typography.headlineSmall)
+        }
+
+        item {
+            Text(
+                text = "选择历史计划，加载到训练页后即可直接开始训练。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
+        item {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = uiState.planText,
+                    onValueChange = onPlanTextChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = maxWidth)
+                        .heightIn(min = editorMinHeight, max = editorMaxHeight),
+                    minLines = editorMinLines,
+                    maxLines = editorMaxLines,
+                    singleLine = false,
+                    label = { Text("计划文本") },
+                )
+            }
+        }
+
         uiState.selectedPlan?.let { plan ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
                 ) {
-                    Text(text = "当前选择", style = MaterialTheme.typography.labelLarge)
+                    Column(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(text = "当前选择", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            text = plan.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = plan.text.lineSequence().firstOrNull().orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            HorizontalDivider()
+        }
+
+        items(uiState.plans, key = { it.id }) { plan ->
+            PlanListItem(
+                plan = plan,
+                isSelected = uiState.selectedPlanId == plan.id,
+                onClick = { onSelectPlan(plan.id) },
+            )
+        }
+
+        item {
+            HorizontalDivider()
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onLoadSelectedPlan,
+                    enabled = uiState.selectedPlanId != null,
+                ) {
                     Text(
-                        text = plan.name,
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "加载到训练页",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onSaveAsNew,
+                    enabled = !uiState.isLoadingPlans,
+                ) {
                     Text(
-                        text = plan.text.lineSequence().firstOrNull().orEmpty(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2,
+                        text = "保存为新计划",
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(uiState.plans, key = { it.id }) { plan ->
-                PlanListItem(
-                    plan = plan,
-                    isSelected = uiState.selectedPlanId == plan.id,
-                    onClick = { onSelectPlan(plan.id) },
-                )
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Button(
+                    modifier = Modifier.weight(1f),
+                    onClick = onUpdateSelectedPlan,
+                    enabled = uiState.selectedPlanId != null,
+                ) {
+                    Text(
+                        text = "保存修改",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onDeleteSelectedPlan,
+                    enabled = uiState.selectedPlanId != null,
+                ) {
+                    Text(
+                        text = "删除计划",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
-        HorizontalDivider()
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onLoadSelectedPlan,
-                enabled = uiState.selectedPlanId != null,
-            ) {
-                Text(
-                    text = "加载到训练页",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                onClick = onSaveAsNew,
-                enabled = !uiState.isLoadingPlans,
-            ) {
-                Text(
-                    text = "保存为新计划",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        uiState.planMessage?.let { message ->
+            item {
+                Text(text = message, color = MaterialTheme.colorScheme.primary)
             }
         }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                modifier = Modifier.weight(1f),
-                onClick = onUpdateSelectedPlan,
-                enabled = uiState.selectedPlanId != null,
-            ) {
-                Text(
-                    text = "保存修改",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        uiState.storageError?.let { error ->
+            item {
+                Text(text = error, color = MaterialTheme.colorScheme.error)
             }
-            OutlinedButton(
-                modifier = Modifier.weight(1f),
-                onClick = onDeleteSelectedPlan,
-                enabled = uiState.selectedPlanId != null,
-            ) {
-                Text(
-                    text = "删除计划",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-
-        uiState.planMessage?.let {
-            Text(text = it, color = MaterialTheme.colorScheme.primary)
-        }
-        uiState.storageError?.let {
-            Text(text = it, color = MaterialTheme.colorScheme.error)
         }
     }
 }

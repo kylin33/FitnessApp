@@ -6,6 +6,14 @@ plugins {
 android {
     namespace = "com.kylin.fitnessapp"
     compileSdk = 34
+    val ciKeystorePath = System.getenv("CI_KEYSTORE_PATH")
+    val ciKeystorePassword = System.getenv("CI_KEYSTORE_PASSWORD")
+    val ciKeyAlias = System.getenv("CI_KEY_ALIAS")
+    val ciKeyPassword = System.getenv("CI_KEY_PASSWORD")
+    val hasCiSigning = !ciKeystorePath.isNullOrBlank() &&
+        !ciKeystorePassword.isNullOrBlank() &&
+        !ciKeyAlias.isNullOrBlank() &&
+        !ciKeyPassword.isNullOrBlank()
 
     defaultConfig {
         applicationId = "com.kylin.fitnessapp"
@@ -24,6 +32,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasCiSigning) {
+            create("ciRelease") {
+                storeFile = file(ciKeystorePath!!)
+                storePassword = ciKeystorePassword
+                keyAlias = ciKeyAlias
+                keyPassword = ciKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -31,6 +50,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (hasCiSigning) {
+                signingConfig = signingConfigs.getByName("ciRelease")
+            }
         }
     }
 

@@ -213,3 +213,5 @@ captures/
 *.iml
 .idea/
 app/build/
+*.jks
+*.keystore
