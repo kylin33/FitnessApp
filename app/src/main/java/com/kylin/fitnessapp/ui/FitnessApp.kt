@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -313,16 +315,20 @@ private fun PlansScreen(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
-            value = uiState.planText,
-            onValueChange = onPlanTextChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 144.dp, max = 320.dp),
-            minLines = 6,
-            maxLines = 12,
-            label = { Text("计划文本") },
-        )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = uiState.planText,
+                onValueChange = onPlanTextChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = maxWidth)
+                    .heightIn(min = 144.dp, max = 320.dp),
+                minLines = 6,
+                maxLines = 12,
+                singleLine = false,
+                label = { Text("计划文本") },
+            )
+        }
 
         uiState.selectedPlan?.let { plan ->
             Card(
@@ -376,14 +382,22 @@ private fun PlansScreen(
                 onClick = onLoadSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
-                Text("加载到训练页")
+                Text(
+                    text = "加载到训练页",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = onSaveAsNew,
                 enabled = !uiState.isLoadingPlans,
             ) {
-                Text("保存为新计划")
+                Text(
+                    text = "保存为新计划",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -396,14 +410,22 @@ private fun PlansScreen(
                 onClick = onUpdateSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
-                Text("保存修改")
+                Text(
+                    text = "保存修改",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
                 onClick = onDeleteSelectedPlan,
                 enabled = uiState.selectedPlanId != null,
             ) {
-                Text("删除计划")
+                Text(
+                    text = "删除计划",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
 
@@ -536,9 +558,12 @@ private fun PlanListItem(
                 )
             }
             Text(
+                modifier = Modifier.widthIn(max = 88.dp),
                 text = plan.id,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
