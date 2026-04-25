@@ -494,7 +494,7 @@ private fun ProfileScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("提示音", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        text = "倒计时与阶段切换时播放 ding.wav",
+                        text = "准备倒计时、最后 3 秒、阶段切换和训练完成时播放 ding.wav",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

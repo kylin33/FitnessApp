@@ -225,7 +225,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         stopCountdown()
-        startRestForCurrentTask()
+        advanceAfterWork()
     }
 
     private fun parseAndStart() {
@@ -277,11 +277,11 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                 if (target.seconds > 0) {
                     startWorkTimer(target.seconds)
                 } else {
-                    startRestForCurrentTask()
+                    advanceAfterWork()
                 }
             }
 
-            is WorkoutTarget.Reps -> startRestForCurrentTask()
+            is WorkoutTarget.Reps -> advanceAfterWork()
         }
     }
 
@@ -300,7 +300,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         restRemainingSeconds = null,
                     )
                 }
-                emitSound(WorkoutSoundEvent.CountdownTick)
+                emitCountdownCueIfNeeded(remaining)
                 delay(1_000)
             }
 
@@ -332,16 +332,14 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         restRemainingSeconds = null,
                     )
                 }
-                if (remaining == 0) {
-                    emitSound(WorkoutSoundEvent.StageTransition)
-                }
+                emitCountdownCueIfNeeded(remaining)
                 if (remaining > 0) {
                     delay(1_000)
                 }
             }
 
             countdownJob = null
-            startRestForCurrentTask()
+            advanceAfterWork()
         }
     }
 
@@ -367,9 +365,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                         restRemainingSeconds = remaining,
                     )
                 }
-                if (remaining == 0) {
-                    emitSound(WorkoutSoundEvent.StageTransition)
-                }
+                emitCountdownCueIfNeeded(remaining)
                 if (remaining > 0) {
                     delay(1_000)
                 }
@@ -399,6 +395,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
 
         val nextTask = tasks[nextIndex]
+        emitSound(WorkoutSoundEvent.StageTransition)
         _uiState.update {
             it.copy(
                 activeTaskIndex = nextIndex,
@@ -567,10 +564,26 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         return "${task.name}  ${task.setInfo}"
     }
 
+    private fun advanceAfterWork() {
+        val task = _uiState.value.currentTask ?: return
+        if (task.restSeconds > 0) {
+            emitSound(WorkoutSoundEvent.StageTransition)
+            startRestForCurrentTask()
+        } else {
+            moveToNextTask()
+        }
+    }
+
     private fun readyDetail(task: WorkoutTask): String {
         return when (val target = task.target) {
             is WorkoutTarget.Time -> "${task.setInfo}  目标: ${target.seconds} 秒"
             is WorkoutTarget.Reps -> "${task.setInfo}  目标: ${target.text}"
+        }
+    }
+
+    private fun emitCountdownCueIfNeeded(remaining: Int) {
+        if (remaining in 1..3) {
+            emitSound(WorkoutSoundEvent.CountdownTick)
         }
     }
 
